@@ -8,13 +8,23 @@ kind: CronJob
 metadata:
   name: del-shutdown-pods
   namespace: kube-system
+  labels:
+    app: shutdown-pod-cleaner
 spec:
   schedule: "* */2 * * *"
   successfulJobsHistoryLimit: 1
   jobTemplate:
     spec:
       template:
+        metadata:
+          labels:
+            app: shutdown-pod-cleaner
         spec:
+          volumes:
+          - name: scripts
+            configMap:
+              name: shutdown-pods-scripts
+              defaultMode: 0777
           serviceAccountName: shutdown-pod-sa
           containers:
           - name: zombie-killer
@@ -24,7 +34,11 @@ spec:
               - "/bin/sh"
             args:
               - "-c"
-              - "kubectl get pods --all-namespaces | grep Shutdown | awk '{print $1,$2}' | xargs -n2 sh -c 'kubectl delete pod -n $0 $1'"
+              - "/scripts/podCleaner.sh"
+            volumeMounts:
+              - name: scripts
+                mountPath: "/scripts"
+                readOnly: true
           restartPolicy: OnFailure
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -32,6 +46,8 @@ kind: ClusterRole
 metadata:
   name: shutdown-pod-cleaner
   namespace: kube-system
+  labels:
+    app: shutdown-pod-cleaner
 rules:
 - apiGroups: [""]
   resources: ["pods"]
@@ -56,6 +72,22 @@ kind: ServiceAccount
 metadata:
   name: shutdown-pod-sa
   namespace: kube-system
+  labels:
+    app: shutdown-pod-cleaner
 ---
-
-
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shutdown-pods-scripts
+  namespace: kube-system
+  labels:
+    app: shutdown-pod-cleaner
+data:
+  podCleaner.sh: |
+    #!/bin/sh
+    if [ $(kubectl get pods --all-namespaces --ignore-not-found=true | grep Shutdown | wc -l) -ge 1 ]
+    then
+    kubectl get pods -A | grep Shutdown | awk '{print $1,$2}' | xargs -n2 sh -c 'kubectl delete pod -n $0 $1 --ignore-not-found=true'
+    else
+    echo "no shutdown pods to clean"
+    fi
