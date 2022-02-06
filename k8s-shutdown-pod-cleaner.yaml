@@ -1,5 +1,7 @@
+# Delete all shutdown pods. This is common problem on kubernetes using preemptible nodes on gke
 # why awk, not failed pods: https://github.com/kubernetes/kubernetes/issues/54525#issuecomment-340035375
 # due fact failed will delete evicted pods, that will complicate pod troubleshooting
+
 ---
 apiVersion: batch/v1beta1
 kind: CronJob
@@ -22,7 +24,7 @@ spec:
               - "/bin/sh"
             args:
               - "-c"
-              - "kubectl delete pods --field-selector status.phase=Failed -A --ignore-not-found=true"
+              - "kubectl get pods --all-namespaces | grep Shutdown | awk '{print $1,$2}' | xargs -n2 sh -c 'kubectl delete pod -n $0 $1'"
           restartPolicy: OnFailure
 ---
 apiVersion: rbac.authorization.k8s.io/v1
